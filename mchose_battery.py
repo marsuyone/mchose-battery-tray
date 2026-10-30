@@ -49,7 +49,7 @@ MCHOSE_A7_VID, MCHOSE_A7_UP = 0x5253, 0xFF01
 MCHOSE_G87_VID, MCHOSE_G87_UP = 0x41E4, 0xFF04
 
 # ATK / VXE 系无线鼠标（Nordic 54L15 方案）
-ATK_VID, ATK_UP = 0x373B, 0xFF05
+ATK_VID, ATK_PID, ATK_UP = 0x373B, 0x1216, 0xFF05
 ATK_RID = 0x08
 ATK_CMD = [0x7D, 0x72, 0x02, 0x00, 0x01, 0x07, 0x01]
 ATK_LEN = 64
@@ -60,12 +60,14 @@ ATK_RETRY_GAP = 0.15      # 两次尝试之间的间隔（秒）
 
 
 # ---------------------------------------------------------------- HID 协议
-def _find_path(vid, usage_page):
+def _find_path(vid, usage_page, pid=None):
     try:
         devices = hid.enumerate(vid)
     except TypeError:
         devices = hid.enumerate(vid, 0)
     for d in devices:
+        if pid is not None and d.get("product_id") != pid:
+            continue
         if d.get("usage_page") == usage_page:
             return d["path"]
     return None
@@ -135,7 +137,7 @@ def read_atk():
       byte8~9=0x0F41           → 3905 mV
     设备休眠时第一帧会丢，所以重试几次。
     """
-    path = _find_path(ATK_VID, ATK_UP)
+    path = _find_path(ATK_VID, ATK_UP, ATK_PID)
     if not path:
         return _result(None)
     body = bytes(([ATK_RID] + ATK_CMD + [0] * ATK_LEN)[:ATK_LEN])
@@ -184,7 +186,7 @@ def read_mouse():
     if _find_path(MCHOSE_A7_VID, MCHOSE_A7_UP):
         level, volt = read_a7()
         return "鼠标 A7", level, volt
-    if _find_path(ATK_VID, ATK_UP):
+    if _find_path(ATK_VID, ATK_UP, ATK_PID):
         level, volt = read_atk()
         return "鼠标 ATK", level, volt
     return "鼠标", None, None
@@ -440,7 +442,7 @@ def probe():
     found = []
     for d in hid.enumerate():
         up = d.get("usage_page") or 0
-        if (d["vendor_id"], d["product_id"]) in ((ATK_VID, 0x1216), (MCHOSE_G87_VID, 0x2001), (MCHOSE_A7_VID, 0x1021)):
+        if (d["vendor_id"], d["product_id"]) in ((ATK_VID, ATK_PID), (MCHOSE_G87_VID, 0x2001), (MCHOSE_A7_VID, 0x1021)):
             if up >= 0xFF00:
                 found.append(
                     f"  VID 0x{d['vendor_id']:04X} PID 0x{d['product_id']:04X} "
