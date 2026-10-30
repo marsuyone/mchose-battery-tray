@@ -26,6 +26,17 @@ pip install hidapi pillow pystray
 python mchose_battery.py
 ```
 
+想知道设备有没有被认出来，可以先跑一次自检（不开托盘，直接打印设备与电量）：
+
+```bash
+python mchose_battery.py --probe
+```
+
+```
+鼠标: 鼠标 ATK  ->  50%  3.90V
+键盘: 键盘 G87  ->  100%
+```
+
 ### 方式二：打包成 exe（推荐）
 
 ```bash
@@ -72,6 +83,23 @@ pyinstaller --noconsole --onefile --name "2.4G设备电量" --icon app.ico ^
 - 直接 `GetFeature(0x06, 8)`，不用先发命令
 - 回包 `06 00 02 64 64 64 b5 70` → 第 **3** 字节 = 电量 %
 
+### ATK / VXE 2.4G 鼠标（VID `0x373B` / PID `0x1216`，Nordic 方案）
+
+- 接口 `usagePage 0xFF05`，Input 64 / Output 64，**没有 Feature Report**
+- 查询用 Output Report `0x08`，载荷 `7D 72 02 00 01 07 01`（补齐到 64 字节）
+- 回包是 Input Report，`byte1 == 0x72` 且 `byte5 == 0x07` 为有效标志
+- 电量 = `byte7`（`0x32` = 50%），电压 = `byte8~9` 小端（`0x0F41` = 3905 mV）
+- 一次写一次读即可，但**设备休眠时第一帧会丢**，代码里重试几次
+
+```
+08 7d 72 02 00 01 07 01 00 …        ← 发送（64 字节）
+08 72 00 05 00 07 01 32 41 0f 00 …   ← 回包：byte7=50%，byte8~9=3905mV
+                  ↑     ↑  ↑
+                byte5=07 byte7 电压
+```
+
+> `0x373B` 下不同 PID 的报文格式可能不同（另有 17 字节 `0xFF02` 方案），换型号要重新确认。
+
 ### 适配其他设备
 
 1. `hid.enumerate(vid)` 找到该设备的私有接口（`usage_page` 为 `0xFFxx`）
@@ -91,8 +119,8 @@ pyinstaller --noconsole --onefile --name "2.4G设备电量" --icon app.ico ^
 
 ## 已知限制
 
-- 只支持 A7 / G87，协议是逐型号逆向的，换设备要重新逆
-- 设备休眠或没连上时显示 `--`，保留上次读数
+- 支持 A7 鼠标 / G87 键盘 / ATK·VXE（`373B:1216`）鼠标，协议是逐型号逆向的，换设备要重新逆
+- 设备休眠或没连上时显示 `--`，保留上次读数；ATK 鼠标休眠时会自动重试，仍读不到就动一下鼠标
 - G87 满电时回包第 3/4/5 字节都是 `0x64`，等电量掉下去才能确认哪个才是真正的百分比字段；
   如果发现键盘读数不准，把 `read_g87()` 的 `resp[3]` 换成 `resp[4]` 或 `resp[5]` 试试
 
