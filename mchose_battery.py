@@ -280,14 +280,23 @@ def set_autostart(enable):
     lnk = _lnk_path()
     try:
         if enable:
-            pyw = Path(sys.executable).with_name("pythonw.exe")
-            target = pyw if pyw.exists() else Path(sys.executable)
-            script = Path(__file__).resolve()
+            if getattr(sys, "frozen", False):
+                # 打包成 exe：目标就是自己，不带任何参数
+                target = Path(sys.executable)
+                args = ""
+                workdir = target.parent
+            else:
+                # 源码运行：pythonw.exe + 脚本路径
+                pyw = Path(sys.executable).with_name("pythonw.exe")
+                target = pyw if pyw.exists() else Path(sys.executable)
+                script = Path(__file__).resolve()
+                args = '"{}"'.format(script)
+                workdir = script.parent
             ps = (
                 "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}');"
-                "$s.TargetPath='{t}';$s.Arguments='\"{sc}\"';"
-                "$s.WorkingDirectory='{wd}';$s.Save()"
-            ).format(lnk=lnk, t=target, sc=script, wd=script.parent)
+                "$s.TargetPath='{t}';$s.Arguments='{a}';"
+                "$s.WorkingDirectory='{wd}';$s.IconLocation='{t}';$s.Save()"
+            ).format(lnk=lnk, t=target, a=args, wd=workdir)
             subprocess.run(
                 ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
                 creationflags=0x08000000, check=False, timeout=20,
