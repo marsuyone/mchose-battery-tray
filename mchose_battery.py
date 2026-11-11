@@ -71,18 +71,38 @@ def read_a7():
 
 
 def read_g87():
-    """迈从 G87 键盘电量，读不到返回 None"""
-    path = _find_path(0x41E4, 0xFF04)
+    """迈从 G87 键盘电量。
+
+    无线模式：向 0xFF02 的 reportId 0x13 发送命令 `13 4a 01 00 00 ...`，
+    响应第 5 字节 = 电量%（例：13 4a 01 00 02 34 01 ... -> 0x34 = 52%）。
+
+    命令来自官方网页驱动 configManagerMap 里的 getBattery.wirelessCommand。
+    （0xFF04 的 Feature Report 0x06 存的是满电容量，恒为 100，不能用。）
+
+    设备休眠时命令通道不响应，此时返回 None。
+    """
+    path = _find_path(0x41E4, 0xFF02)
     if not path:
         return None
     dev = hid.device()
     try:
         dev.open_path(path)
-        resp = dev.get_feature_report(0x06, 8)
-        if len(resp) < 4:
-            return None
-        val = resp[3]
-        return val if 0 <= val <= 100 else None
+        dev.set_nonblocking(1)
+        # 清掉缓冲区里的旧报文
+        for _ in range(8):
+            if not dev.read(64):
+                break
+        # getBattery 无线命令（20 字节）
+        dev.write([0x13, 0x4A, 0x01, 0x00] + [0x00] * 16)
+        deadline = time.time() + 1.5
+        while time.time() < deadline:
+            r = dev.read(64)
+            if r and len(r) >= 6 and r[0] == 0x13 and r[1] == 0x4A:
+                val = r[5]
+                if 0 <= val <= 100:
+                    return val
+            time.sleep(0.03)
+        return None
     except Exception:
         return None
     finally:
